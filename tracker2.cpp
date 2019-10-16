@@ -11,133 +11,155 @@
 #include<errno.h>
 #include<unistd.h>
 #include <pthread.h>
+#include <string>
 #include <dirent.h>
 
-// void *serverservice(void *socket_desc)
-// {
-//     int new_socket = *(int *)socket_desc;
-//     while (1)
-//     {
-//         int closeflag = 0;
-//         char buffer[1024] = {0};
-//         int rc = read(new_socket, buffer, 1024);
-//         if (rc == 0)
-//         {
-//             close(new_socket);
-//             return socket_desc;
-//         }
-     
-
-//         // stringstream check2(data);
-//         // string intermediate1;
-//         // // Tokenizing w.r.t. space '#'
-//         // while (getline(check2, intermediate1, '#'))
-//         // {
-//         //     tokens1.push_back(intermediate1);
-//         // }
-
-       
-//         //cout<<"serverreply : "<<string(serverreply)<<endl;
-//         char *serverreply = new char[clientreplymsg.length() + 1];
-//         strcpy(serverreply, clientreplymsg.c_str());
-//         //cout<<"serverreply : "<<serverreply<<endl;
-//         send(new_socket, serverreply, strlen(serverreply), 0);
-
-
-
-//         if (closeflag == 1)
-//         {
-//             close(new_socket);
-//             break;
-//         }
-//     }
-
-//     return socket_desc;
+using namespace std;
+struct trackerdara{ 
+    string socketdata;
+    string trackerdara;
+};
+map<string, string> userfiles;
+bool downloadflag;
+vector<string> stringProcessing(string command, char delimeter)
+{
+    vector<string> temptokens;
+    string token="";
+    for(unsigned int i=0;i<command.length();i++)
+    {
+        char ch=command[i];
+        if(ch=='\\')
+        {
+            i++;
+            token += command[i];
+        }
+        else if(ch==delimeter)
+        {
+            temptokens.push_back(token);
+            token="";
+        }
+        else{
+            token += ch;
+        }
+    }
+    temptokens.push_back(token);
+    return temptokens;
+}
 
 
+string download (vector<string> tokens) {
+
+    string A=tokens[0];
+
+    auto itr = userfiles.find(tokens[1]);
+        if(itr!=userfiles.end()){
+            A=A+" "+tokens[1]+" "+itr->second;
+        }
+
+        else{
+            A = "no file like that in the goup";
+        }
+
+        downloadflag=1;
+        
+        cout << A << endl;
+        // cout << "haha : "<< A << endl;
+        return A;
+}
 
 
-// using namespace std;
-// class socketclass
-// {
-//   public:
-//     char *ip; //IP Address
-//     int port; //Port Address
+string upload(vector<string> tokens) {
+   // cout << "haha" << endl ;
+    string A=tokens[1];
+    userfiles[A] = tokens[3];
+     auto it=userfiles.find(A) ;
+   //  cout << it->second << endl;
 
-//     socketclass()
-//     {
-//         // ip="";
-//         port = 0;
-//     }
-
-//     // socketclass(string ip1, int port1)
-//     // {
-//     //     ip = ip1;
-//     //     port = port1;
-//     // }
-
-//     void setsocketdata(string sc)
-//     {
-//         vector<string> tokens;
-
-//         stringstream check1(sc);
-
-//         string intermediate;
-
-//         // Tokenizing w.r.t. space ' '
-//         while (getline(check1, intermediate, ':'))
-//         {
-//             tokens.push_back(intermediate);
-//         }
-
-//         string strip = tokens[0];
-//         ip = new char[strip.length() + 1];
-//         strcpy(ip, strip.c_str());
-//         port = stoi(tokens[1]);
-//     }
-// };
-
+   cout << "A : " <<  it->second << endl;
+     downloadflag=0;
+    return tokens[3];
+}
 
 void * server( void *socket_desc){
     
-    int new_socket = *(int *)socket_desc;
-    int sock = 0;
-    struct sockaddr_in serv_addr;
-    if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-    {
-        printf("\n Socket creation error in client side\n");
-        return NULL;
-    }
-    memset(&serv_addr, '0', sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(2000);
-    serv_addr.sin_addr.s_addr=inet_addr("127.0.0.1");
-
-    int addrlen=sizeof(serv_addr);
-
-    bind(sock,(struct sockaddr*)&serv_addr,sizeof(sockaddr));
+     
     
-    int status=listen(sock,5);
 
-    int client_sockfd=accept(sock,(struct sockaddr*)&serv_addr,(socklen_t*)&addrlen);
-    int filesize;
-    recv(client_sockfd,&filesize,sizeof(filesize),0);
-    FILE *f=fopen("file","wb");
+     char buffer[512 * 1024 ]={0};
+    int new_socket = *(int *)socket_desc;
+    // int n=0;
+    while (1){
+        int filesize;
+    
+    
+    
+    recv(new_socket ,&filesize,sizeof(filesize),0);
+    memset (buffer, '\0', 512*32);
+    recv( new_socket  , buffer ,512*32, 0); 
+    string complexdata =""; 
+    string command = "";
+    // printf("%s\n",buffer); 
 
-    char buffer[512]={0};
-    int n=0;
-    while ( ( n = recv( client_sockfd , buffer ,512, 0) ) > 0  && filesize > 0){
+    //printf("%s\n",to_string(buffer[512*1024]).c_str()); 
+
+    command=command+string((char*)buffer);
+    printf("%s\n",command.c_str());
+    vector<string> tokens = stringProcessing(command,' ');
+    printf("thi is the command : %s\n",tokens[0].c_str());
+    if (tokens[0] == "upload")
+            {
+                if (tokens.size() != 4)
+                {
+                    cout << "INVALID_ARGUMENTS --- SHARE Command" << endl;
+                    continue;
+                }
+              
+                complexdata = complexdata+upload(tokens);
+                
+                if (complexdata == "-1")
+                    continue;
+            }
+    
+            else if (tokens[0] == "download")
+            {
+
+                if (tokens.size() != 2)
+                {
+                    cout << "INVALID_ARGUMENTS --- SHARE Command" << endl;
+                    continue;
+                }
+               complexdata = download(tokens);
+               
+               if (complexdata == "-1")
+                    continue;
+            }
+            else {
+
+                cout << "haha" << endl;
+                break;
+            }
 	
-    fwrite (buffer , sizeof (char), n, f);
-    memset (buffer, '\0', 512);
-    filesize = filesize - n;
-    } 
+    
+   
+   if (downloadflag==1){
+    
+            char *clientreply = new char[complexdata.length() + 1];
+            strcpy(clientreply, complexdata.c_str());
+            cout<<"clien nt request to tracker\n" ; 
 
-    close(client_sockfd);
-    close(sock);
-    fclose(f);
+            int size=strlen(clientreply);
+          int n =   send(new_socket,&size,sizeof(size),0);
+     //       cout << n << endl; 
+           int s=  send(new_socket, clientreply, strlen(clientreply), 0);\
+       //     cout << s << endl;
+         
+   }
+    
 
-    return socket_desc;
+    
+}
+close(new_socket );
+return socket_desc;
 }
 
 

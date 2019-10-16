@@ -6,6 +6,7 @@
 #include <stdlib.h> 
 #include <netinet/in.h> 
 #include <arpa/inet.h>
+#include <string.h>
 #include <fstream>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -20,7 +21,35 @@ string clientsocketstr, trackersocket1str, trackersocket2str;
 map<string, string> downloadstatus; //to maintain download status
 vector<pair<string, string>> clientfilepath;
 
-int CSIZE = 512 * 1024 ; 
+int chunk_size = 512 * 1024 ; 
+
+string getsmallhash(string A)
+{
+    string final_ans;
+   
+        char k [A.size()+1];
+        strcpy(k,A.c_str());
+         unsigned char hash[SHA_DIGEST_LENGTH];
+    char buf[SHA_DIGEST_LENGTH *2 ];
+
+       SHA1((const unsigned char *) k, A.length(), hash );
+
+
+      
+        for (int i = 0; i < SHA_DIGEST_LENGTH; i++) 
+            sprintf((char *)&(buf[i* 2]), "%02x", hash[i]);
+    
+        for (int i = 0; i < 10; i++)
+        {
+            final_ans +=buf[i];
+        }
+      //  cout << final_ans;
+        //ans= final_ans;
+    
+    
+    return final_ans;
+    
+}
 string calHashofchunk(char *schunk, int length1, bool shorthashflag)
 {
 
@@ -61,7 +90,7 @@ string getFileHash(char *fpath)
     if (!file1)
     {
         cout << "FILE DOES NOT EXITST : " << string(fpath) << endl;
-        return "-1";
+        return "NULL ";
     }
 
     struct stat fstatus;
@@ -69,21 +98,21 @@ string getFileHash(char *fpath)
 
     // Logic for deviding file1 into chunks
     long int total_size = fstatus.st_size;
-    long int chunk_size = CSIZE;
+    long int chunk_size = chunk_size;
 
     int total_chunks = total_size / chunk_size;
     int last_chunk_size = total_size % chunk_size;
 
     if (last_chunk_size != 0) // if file1 is not exactly divisible by chunks size
     {
-        ++total_chunks; // add last chunk to count
+        ++total_chunks; 
     }
-    else //when file1 is completely divisible by chunk size
+    else 
     {
         last_chunk_size = chunk_size;
     }
 
-    // loop to getting each chunk
+
     for (int chunk = 0; chunk < total_chunks; ++chunk)
     {
         int cur_cnk_size;
@@ -93,78 +122,248 @@ string getFileHash(char *fpath)
             cur_cnk_size = chunk_size;
 
         char *chunk_data = new char[cur_cnk_size];
-        file1.read(chunk_data,    /* address of buffer start */
-                   cur_cnk_size); /* this many bytes is to be read */
+        file1.read(chunk_data,   
+                   cur_cnk_size); 
 
         string sh1out = calHashofchunk(chunk_data, cur_cnk_size, 1);
         fileHash = fileHash + sh1out;
     }
+    file1.close();
 
     return fileHash;
 }
 
-void *seederservice(void *socket_desc)
+
+vector<string> String_Manipulation(string command, char delimeter)
 {
-    int new_socket = *(int *)socket_desc;
-    char buffer[1024] = {0};
-    read(new_socket, buffer, 1024);
+    vector<string> temptokens;
+    string token="";
+    for(unsigned int i=0;i<command.length();i++)
+    {
+        char ch=command[i];
+        if(ch=='\\')
+        {
+            i++;
+            token += command[i];
+        }
+        else if(ch==delimeter)
+        {
+            temptokens.push_back(token);
+            token="";
+        }
+        else{
+            token += ch;
+        }
+    }
+    temptokens.push_back(token);
+    return temptokens;
+}
+
+string upload(vector<string> tokens,string socket_port) {
+
+    string A;
+    string B;
+    cout << "got upload request \n";
+    B=tokens[0]+" "+tokens[1];
+
+    char s[tokens[1].size()+1];
+    strcpy(s,tokens[1].c_str());
+
+    A=getFileHash(s);
+  
+
+    string C= getsmallhash(A);
+    B=B+" "+C+" "+socket_port;
+    printf("%s\n",B.c_str());
+    return B;
+}
+
+void *Download_Threads(void *socket_desc){
+     int download_thread_fd = *(int *)socket_desc;
+  //  cout << "asdasd " << endl;
+    char filename[100];
+     recv(download_thread_fd ,filename,100,0);
+
+    FILE *f=fopen(filename,"w");
+    fclose(f);
+    f=fopen(filename,"r+");
+
+    if(!f){
+        cout << "something wrong with file"<< endl;
+    }
+    int filesize;
+  //  char *Buffer[512]={0};
+    int n=0;
+     string po = "";
+     char BUFFER1[512*1024];
+    recv(download_thread_fd ,&filesize,sizeof(filesize),0);
     
-    string actualfilepath = string(buffer);
+      char Buffer[512*32]={0};
+     int count=0;
+      bool flag;
+    while ( ( n = recv( download_thread_fd , Buffer ,512*32 , 0) ) > 0  ){
+     //  recv( download_thread_fd , Buffer ,512 * 64, 0);
+	cout << Buffer << endl; 
+  
+    
+  //    po=po+string((char*)Buffer);
 
-    char *fpath = new char[actualfilepath.length() + 1];
-    strcpy(fpath, actualfilepath.c_str());
+  //  cout << po <<endl; 
+   // cout << n << endl;
+     
+     int  g= fwrite(Buffer,sizeof(char),n,f); 
+        count=count+n;
+        if(g<0){
+            perror("fwrite");
+        }
+     //   cout << "M" << g << endl;
+     memset (Buffer, '\0', 512*32);
+        if(count==filesize){
+            break;
+        }
+     filesize = filesize - n;
+    
 
-    ifstream file1(fpath, ifstream::binary);
+    } 
+       fclose(f);
+  //  cout << po << endl;
+ 
+   
+  
 
-    if (!file1)
-    {
-        cout << "Can't Open file1  : " << string(fpath) << endl;
-        //return "-1";
-    }
-
-    struct stat fstatus;
-    stat(fpath, &fstatus);
-
-    // Logic for deviding file1 into chunks
-    long int total_size = fstatus.st_size;
-    long int chunk_size = CSIZE;
-
-    int total_chunks = total_size / chunk_size;
-    int last_chunk_size = total_size % chunk_size;
-
-    if (last_chunk_size != 0) // if file1 is not exactly divisible by chunks size
-    {
-        ++total_chunks; // add last chunk to count
-    }
-    else //when file1 is completely divisible by chunk size
-    {
-        last_chunk_size = chunk_size;
-    }
-
-    // loop to getting each chunk
-    for (int chunk = 0; chunk < total_chunks; ++chunk)
-    {
-        int cur_cnk_size;
-        if (chunk == total_chunks - 1)
-            cur_cnk_size = last_chunk_size;
-        else
-            cur_cnk_size = chunk_size;
-
-        char *chunk_data = new char[cur_cnk_size];
-        file1.read(chunk_data,    /* address of buffer start */
-                   cur_cnk_size); /* this many bytes is to be read */
-
-        send(new_socket, chunk_data, cur_cnk_size, 0);
-    }
-
-    //printf("Reply message sent from seeder\n");
-    close(new_socket);
-    file1.close();
     return socket_desc;
 }
 
-void *seederserverservice(void *socket_desc)
+void *Server_Tracker(void *socket_desc){
+ 
+    while(1){
+    char buffer[512]={0};
+int filesize;
+ memset (buffer, '\0', 512);
+    int server_thread_fd = *(int *)socket_desc;
+     int  n=  recv(server_thread_fd,&filesize,sizeof(filesize),0);
+       //      cout << n << endl;
+    
+        int   k=  recv( server_thread_fd , buffer ,512, 0);
+     //      cout << k << endl;
+     //   cout << buffer << endl;
+   
+    string command= "";    
+    command=command+string((char*)buffer);
+    vector<string> token = String_Manipulation(command,' ');
+     
+        if(token[0]=="download"){
+            int sock = 0;
+        struct sockaddr_in download_from_another_peer;
+
+        memset(&download_from_another_peer, '0', sizeof(download_from_another_peer));
+        download_from_another_peer.sin_family = AF_INET;
+        download_from_another_peer.sin_port = htons(atoi(token[2].c_str()));
+        download_from_another_peer.sin_addr.s_addr=inet_addr("127.0.0.1");
+        
+
+        if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == 0)
+        {
+            perror("socket failed");
+            exit(EXIT_FAILURE);
+        }
+        
+        if (inet_pton(AF_INET, "127.0.0.1", &download_from_another_peer.sin_addr) <= 0)
+        {
+            printf("\nClient File  : Invalid address/ Address not suppcserveridorted \n");
+            return NULL;
+        }
+
+        if (connect(sock, (struct sockaddr *)&download_from_another_peer, sizeof(download_from_another_peer)) < 0)
+        {
+            printf("\nConnection Failed in client side\n");
+            return NULL;
+        }
+        printf("connection done yey!");
+
+            pthread_t download_thread ; 
+            if (pthread_create(&download_thread, NULL, Download_Threads, (void *)&sock) < 0)
+            {
+                perror("\ncould not create thread\n");
+            }
+
+
+            string temp = token[1];
+            char *clientrequest = new char[temp.length() + 1];
+            strcpy(clientrequest, temp.c_str());
+           
+
+            int size=strlen(clientrequest);
+            int n=send(sock,&size,sizeof(size),0);
+        //    cout << "chunk size sent" << n << endl ; 
+
+           int k = send(sock, clientrequest, strlen(clientrequest), 0);
+
+            cout << "name sent" << k << endl;
+
+        }
+    
+}
+return socket_desc;
+}
+
+void *Server_Threads(void *socket_desc)
 {
+      int server_fd_thread = *(int *)socket_desc;
+   
+     int filesize;
+        
+            int  l=  recv(server_fd_thread,&filesize,sizeof(filesize),0);
+            char buffer[512]={0};
+          //   cout << l << endl;
+               
+           int   k=  recv( server_fd_thread , buffer ,512, 0);
+        //   cout << buffer << endl;
+         //   memset (buffer, '\0', 512);
+         //   cout << k << endl;
+           char filename[512] ;
+            strcpy(filename, buffer);
+         // cout << buffer << endl;
+           
+         FILE *fp = fopen ( filename  , "r" );
+        if(!fp){
+            perror("not opening");
+        }
+        
+        send ( server_fd_thread ,(char *) filename, 100, 0);
+
+
+	fseek ( fp , 0 , SEEK_END);
+  	int size = ftell ( fp );
+  	rewind ( fp );
+
+    send ( server_fd_thread , &size, sizeof(size), 0);
+
+char Buffer [ 512*32 ] ; 
+int n;
+	while ( ( n = fread( Buffer , sizeof(char) , 512 *32, fp ) ) > 0  && size > 0 ){
+	int k=	send (server_fd_thread , Buffer, n, 0 );
+  //  cout << k << endl;
+   	 	memset ( Buffer , '\0', 512*32 );
+		size = size - n ;
+}
+
+fclose ( fp );
+
+          
+        
+
+return socket_desc;
+}
+
+
+
+
+void *server(void *socket_desc){
+   
+   
+   char buffer[512]={0};
+    //cout << "SDsdsd" << endl;
     string cli_socket = *(string *)socket_desc;
       pthread_t thread_id;
 
@@ -202,147 +401,49 @@ void *seederserverservice(void *socket_desc)
         exit(EXIT_FAILURE);
     }
 
-    while (1)
-    {
-        // accept connection from any leecher
-        if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0)
+     while (1)
         {
-            perror("Error in accept connection in seeder");
-            exit(EXIT_FAILURE);
+            if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t *)&addrlen)) < 0)
+            {
+                perror("Error in accept connection");
+                exit(EXIT_FAILURE);
+            }
+
+               if (pthread_create(&thread_id, NULL, Server_Threads, (void *)&new_socket) < 0)
+            {
+                perror("\ncould not create thread\n");
+            }
+
+            printf("\nthread ban raha he \n");
+
         }
-
-        //create new thread to provide data to that leecher and seeder again listen for other
-        if (pthread_create(&thread_id, NULL, seederservice, (void *)&new_socket) < 0)
-        {
-            perror("\ncould not create thread in seeder\n");
-        }
-        if (new_socket < 0)
-        {
-            perror("accept failed in seeder");
-        }
-    }
-
-    return socket_desc;
-}
-
-string getsmallhash(string A)
-{
-    string final_ans;
-   // const char * k = A.c_str();
-    //    char * s;
-    //    strcpy(s,k);
-        char k [A.size()+1];
-        strcpy(k,A.c_str());
-         unsigned char hash[SHA_DIGEST_LENGTH];
-    char buf[SHA_DIGEST_LENGTH *2 ];
-
-       SHA1((const unsigned char *) k, A.length(), hash );
-
-
-      
-        for (int i = 0; i < SHA_DIGEST_LENGTH; i++) 
-            sprintf((char *)&(buf[i* 2]), "%02x", hash[i]);
-    
-        
-    
-  
-        for (int i = 0; i < 10; i++)
-        {
-            final_ans +=buf[i];
-        }
-        cout << final_ans;
-        //ans= final_ans;
-    
-    
-    return final_ans;
-    
-}
-
-string logout (string token,string sockatport){
-
-}
-
-
-
-vector<string> stringProcessing(string command, char delimeter)
-{
-    vector<string> temptokens;
-    string token="";
-    for(unsigned int i=0;i<command.length();i++)
-    {
-        char ch=command[i];
-        if(ch=='\\')
-        {
-            i++;
-            token += command[i];
-        }
-        else if(ch==delimeter)
-        {
-            temptokens.push_back(token);
-            token="";
-        }
-        else{
-            token += ch;
-        }
-    }
-    temptokens.push_back(token);
-    return temptokens;
-}
-
-string upload(vector<string> tokens) {
-
-    string A;
-    char s[tokens[1].size()+1];
-    strcpy(s,tokens[1].c_str());
    
-    A=getFileHash(s);
+return socket_desc;
+}
 
+
+
+
+
+
+
+
+
+
+string download (vector<string> tokens){
+    string A=""; 
+    A=tokens[0]+" "+tokens[1];
     return A;
 }
 
-
-
-
-// extern int globalcurchunksize;
-
 int main(int argc, char * argv[]){
 
-    // char filename[] = "P.SILoveYou.avi";
-
-    // string A = getFileHash(filename);
-    // string B= getsmallhash(A);
-
-
-
-
-    // socketclass clientsocket;
-    // socketclass trackersocket1;
-    // socketclass trackersocket2;
-    // if (argc != 5)
-    // {
-    //     cout << "Invalid Argument in client!!!" << endl;
-    // }
-    // else
-    
+   
          clientsocketstr = string(argv[1]);
          trackersocket1str = string(argv[2]);
         
-        // clientsocket.setsocketdata(clientsocketstr);
-        // trackersocket1.setsocketdata(trackersocket1str);
-        // trackersocket2.setsocketdata(trackersocket2str);
-        // logpath = argv[4];
-        // ofstream myfile(logpath, std::ios_base::out);
-        // myfile.close();
-        // writelog("********new client started *********");
-        // writelog("Client socket : " + clientsocketstr);
-        // writelog("Tracker 1 socket : " + trackersocket1str);
-        // writelog("Tracker 2 socket : " + trackersocket2str);
-        // // cout<<"Tracker 1 socket: "<<trackersocket1.ip<<" : "<<trackersocket1.port<<endl;
-        // // cout<<"Tracker 2 socket: "<<trackersocket2.ip<<" : "<<trackersocket2.port<<endl;
-
-        // //create new thread from client which act as seeder(server) to provide data to others
-        pthread_t cserverid;
-        if (pthread_create(&cserverid, NULL, seederserverservice, (void *)&clientsocketstr) < 0)
+        pthread_t cserverid,cstracker;
+        if (pthread_create(&cserverid, NULL, server, (void *)&clientsocketstr) < 0)
         {
             perror("\ncould not create thread in client side\n");
         }
@@ -374,24 +475,30 @@ int main(int argc, char * argv[]){
             return -1;
         }
 
-        printf("yey ");
-       
-        //continuously listening to client for his entring command
+        printf("connection okay! yey \n");
+
+        if (pthread_create(&cstracker, NULL, Server_Tracker, (void *)&sock) < 0)
+        {
+            perror("\ncould not create thread in client side\n");
+        }
+
+      
+
         while (1)
         {
-
+            printf("$$$ ");
             int getflag = 0, closeflag = 0;
             char *mtorrentfilepath;
             string strcmd, destpath, getcmdmtorrentpath;
 
-            //writelog("Enter the command : ");
+           
             getline(cin >> ws, strcmd);
           
 
-            vector<string> tokens=stringProcessing(strcmd,' ');
+            vector<string> tokens=String_Manipulation(strcmd,' ');
             string complexdata;
-
-            // To handle which command enter by client
+            
+          
             if (tokens[0] == "upload")
             {
                 if (tokens.size() != 2)
@@ -399,29 +506,29 @@ int main(int argc, char * argv[]){
                     cout << "INVALID_ARGUMENTS --- SHARE Command" << endl;
                     continue;
                 }
-              
-                complexdata = upload(tokens);
                 
-                if (complexdata == "-1")
+              
+                complexdata = upload(tokens,clientsocketstr);
+                
+                if (complexdata == "NULL ")
                     continue;
             }
             else if (tokens[0] == "download")
-            {
-                // if (tokens.size() != 2)
-                // {
-                //     cout << "INVALID_ARGUMENTS --- GET Command" << endl;
-                //     continue;
-                // }
+            {   
+            
+                if (tokens.size() != 2)
+                {
+                    cout << "INVALID_ARGUMENTS --- GET Command" << endl;
+                    continue;
+                }
                
-                // complexdata = download(tokens);
+                complexdata = download(tokens);
                 // destpath = tokens[2];
                 // getcmdmtorrentpath = tokens[1];
-                // if (complexdata == "-1")
-                //     continue;
-                // else
-                // {
-                //     getflag = 1;
-                // }
+               
+                if (complexdata == "NULL ")
+                    continue;
+                
             }
             else if (tokens[0] == "logout")
             {
@@ -432,7 +539,7 @@ int main(int argc, char * argv[]){
                 // }
                 
                 // complexdata = logout(tokens, clientsocketstr);
-                // if (complexdata == "-1")
+                // if (complexdata == "NULL ")
                 //     continue;
             }
             else if (tokens[0] == "login")
@@ -453,7 +560,7 @@ int main(int argc, char * argv[]){
             }
             else if (tokens[0] == "creat_group")
             {
-                
+                printf("not done yet");
                 // complexdata = "close#" + clientsocketstr;
                 // closeflag = 1;
             }
@@ -463,59 +570,18 @@ int main(int argc, char * argv[]){
                 continue;
             }
 
+         
+
             char *clientreply = new char[complexdata.length() + 1];
             strcpy(clientreply, complexdata.c_str());
-            //cout<<"clientreply : "<<clientreply<<endl;
+         
 
-            //to send client request to tracker
+            int size=strlen(clientreply);
+            send(sock,&size,sizeof(size),0);
             send(sock, clientreply, strlen(clientreply), 0);
-
             
-            //to recieve tracker responce
-            char buffer[1024] = {0};
-            read(sock, buffer, 1024);
-           
-            if (getflag != 1)
-                cout << string(buffer) << endl;
-
-            string responce = string(buffer);
-
-            //when getting response of get command as list of  client socket having file
-            if (getflag == 1)
-            {
-                // struct complexData obj1;
-                // obj1.replydata1 = new char[responce.length() + 1];
-                // strcpy(obj1.replydata1, responce.c_str());
-                // obj1.destpath1 = new char[destpath.length() + 1];
-                // strcpy(obj1.destpath1, destpath.c_str());
-                // obj1.getcmdmtorrentpath1 = new char[getcmdmtorrentpath.length() + 1];
-                // strcpy(obj1.getcmdmtorrentpath1, getcmdmtorrentpath.c_str());
-                // obj1.sock1 = sock;
-
-                // //for non-blocking get command (create separate thread for downloading file)
-                // pthread_t getclientid;
-                // if (pthread_create(&getclientid, NULL, getcommandExecution, (void *)&obj1) < 0)
-                // {
-                //     perror("\ncould not create thread in client side\n");
-                // }
-            }
-            getflag = 0;
-
-            //When Server Send Response for remove command
-            if (responce == "FILE SUCCESSFULLY REMOVED")
-            {
-                if (remove(mtorrentfilepath) != 0)
-                    perror("\nError deleting mtorrent file\n");
-            }
-
-            //When Client is closed
-            if (closeflag == 1)
-            {
-                cout << "Thank You !!!" << endl;
-                close(sock);
-                break;
-            }
-        }
+            
+         }
          return 0;
     }
 
